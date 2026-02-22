@@ -34,7 +34,7 @@ def process():
         file.save(input_path)
         add_numbers_to_pdf(input_path, output_path)
         base = Path(file.filename).stem
-        download_name = f"{base}_numbered.pdf"
+        download_name = f"{base}_iloveVerum.pdf"
         return send_file(
             output_path,
             as_attachment=True,
