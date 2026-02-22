@@ -1,0 +1,23 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.so
+
+# Local / IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Test / temp files
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
