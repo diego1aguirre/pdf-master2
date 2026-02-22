@@ -11,7 +11,13 @@ from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 
-# Styling and positioning (points: 72 pt = 1 inch)
+# ---------- HEADER: page number location & size ----------
+# Placed in the header: top-right, 0.25 in from top, 1 in from right (clear of body margin).
+FONT_SIZE = 18
+HEADER_TOP_PT = 35      # 0.25 in from top of page to baseline
+HEADER_RIGHT_MARGIN_PT = 20   # 1 in from right edge (right edge of text sits here)
+# ------------------------------------------------------------------
+
 # Prefer Arial when available (e.g. macOS); otherwise use PDF built-in Helvetica.
 def _get_font_name() -> str:
     if sys.platform == "darwin":
@@ -31,26 +37,20 @@ def _get_font_name() -> str:
     return "Helvetica"
 
 FONT_NAME = _get_font_name()
-FONT_SIZE = 18
-TOP_MARGIN_PT = 0.25 * 72   # 0.25 inches = 18 pt from top edge
-RIGHT_MARGIN_PT = 72        # 1 inch from right edge for alignment
-CONTENT_LEFT_MARGIN_PT = 72 # 1.0 inch left margin for content (reference only; number is top-right)
 
 
 def create_page_number_overlay(width_pt: float, height_pt: float, current: int, total: int) -> bytes:
-    """Create a single-page PDF overlay with 'Pag. current/total' in the top-right."""
+    """Create a single-page PDF overlay with 'Pag. current/total' in the header (top-right)."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=(width_pt, height_pt))
 
-    # PDF origin is bottom-left; top of page is height_pt
-    # Place baseline so top of text is ~TOP_MARGIN_PT from top
-    # For 18pt font, ascent ~14pt → baseline = height - TOP_MARGIN_PT - 14
-    baseline_y = height_pt - TOP_MARGIN_PT - 14
+    # Header: top-right — change HEADER_TOP_PT / HEADER_RIGHT_MARGIN_PT at top of file
+    baseline_y = height_pt - HEADER_TOP_PT
+    x_right = width_pt - HEADER_RIGHT_MARGIN_PT
 
     text = f"Pag. {current}/{total}"
     c.setFont(FONT_NAME, FONT_SIZE)
-    # drawRightString(x, y, text): right edge of text at x
-    c.drawRightString(width_pt - RIGHT_MARGIN_PT, baseline_y, text)
+    c.drawRightString(x_right, baseline_y, text)
 
     c.save()
     buffer.seek(0)

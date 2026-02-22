@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Page Numbers</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 420px;
+      margin: 3rem auto;
+      padding: 0 1rem;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    p { color: #555; margin-bottom: 1.5rem; }
+    form {
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      padding: 2rem;
+      text-align: center;
+      background: #fafafa;
+    }
+    input[type="file"] { display: block; margin: 0 auto 1rem; }
+    button {
+      background: #222;
+      color: #fff;
+      border: none;
+      padding: 0.6rem 1.2rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:hover { background: #444; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .msg { margin-top: 1rem; font-size: 0.9rem; }
+    .err { color: #c00; }
+    .ok { color: #080; }
+  </style>
+</head>
+<body>
+  <h1>Add page numbers to PDF</h1>
+  <p>Upload a PDF to get a copy with &quot;Pag. 1/40&quot; style numbers in the top-right corner.</p>
+  <form id="form" action="/process" method="post" enctype="multipart/form-data">
+    <input type="file" name="pdf" accept=".pdf" required id="file">
+    <button type="submit" id="btn">Add page numbers</button>
+  </form>
+  <p class="msg" id="msg" aria-live="polite"></p>
+
+  <script>
+    const form = document.getElementById('form');
+    const btn = document.getElementById('btn');
+    const msg = document.getElementById('msg');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.textContent = '';
+      msg.className = 'msg';
+      btn.disabled = true;
+      const fd = new FormData(form);
+      try {
+        const res = await fetch('/process', { method: 'POST', body: fd });
+        if (!res.ok) {
+          const t = await res.text();
+          msg.textContent = t || 'Something went wrong.';
+          msg.className = 'msg err';
+          return;
+        }
+        const blob = await res.blob();
+        const name = res.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/)?.[1] || 'numbered.pdf';
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        msg.textContent = 'Download started.';
+        msg.className = 'msg ok';
+      } catch (err) {
+        msg.textContent = err.message || 'Request failed.';
+        msg.className = 'msg err';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
