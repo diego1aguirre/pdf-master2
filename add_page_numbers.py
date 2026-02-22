@@ -93,7 +93,7 @@ def process_folder(folder: Path) -> None:
     pdf_files = [f for f in pdf_files if not f.stem.endswith("_numbered")]
 
     for pdf_path in pdf_files:
-        out_name = f"{pdf_path.stem}_numbered.pdf"
+        out_name = f"{pdf_path.stem}_iloveVerum.pdf"
         output_path = pdf_path.parent / out_name
         add_numbers_to_pdf(pdf_path, output_path)
         print(f"Created: {output_path}")
