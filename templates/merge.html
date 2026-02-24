@@ -6,63 +6,136 @@
   <title>Merge PDF & Word</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 520px; margin: 2rem auto; padding: 0 1rem; }
     h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
     a { color: #0066cc; }
     p { color: #555; margin-bottom: 1rem; }
     form { border: 2px dashed #ccc; border-radius: 8px; padding: 1.5rem; background: #fafafa; }
     label { display: block; margin: 0.75rem 0 0.25rem; font-weight: 500; }
-    input[type="file"] { display: block; margin: 0.25rem 0 1rem; }
     input[type="text"] { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
     .checkbox { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; }
     .checkbox input { width: auto; }
-    button { background: #222; color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-size: 1rem; cursor: pointer; margin-top: 1rem; }
-    button:hover { background: #444; }
+    .add-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+    .add-row input[type="file"] { display: none; }
+    .btn-add { background: #444; color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.95rem; }
+    .btn-add:hover { background: #222; }
+    .file-list { list-style: none; margin: 0 0 1rem 0; padding: 0; }
+    .file-list li { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid #eee; }
+    .file-list li:last-child { border-bottom: none; }
+    .file-list .num { color: #666; min-width: 1.5rem; }
+    .file-list .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-list button { background: transparent; border: none; color: #666; cursor: pointer; padding: 0.2rem 0.4rem; font-size: 0.85rem; }
+    .file-list button:hover { color: #c00; }
+    .file-list .move { color: #0066cc; }
+    .file-list .move:hover { text-decoration: underline; }
+    button[type="submit"] { background: #222; color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-size: 1rem; cursor: pointer; margin-top: 0.5rem; }
+    button[type="submit"]:hover { background: #444; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
     .msg { margin-top: 1rem; font-size: 0.9rem; }
     .err { color: #c00; }
     .ok { color: #080; }
-    .order { font-size: 0.85rem; color: #666; margin-top: 0.25rem; }
+    .hint { font-size: 0.85rem; color: #666; margin-top: 0.25rem; }
   </style>
 </head>
 <body>
   <p><a href="/">← Add page numbers to single PDF</a></p>
   <h1>Merge PDF & Word</h1>
-  <p>Upload PDF and/or DOCX files in the order you want. They will be merged into one PDF. Optionally add page numbers.</p>
+  <p>Add files one by one (or several at a time). Order is the merge order. You can remove or move items.</p>
+
   <form id="form" action="/merge" method="post" enctype="multipart/form-data">
-    <label for="files">Files (order = merge order)</label>
-    <input type="file" name="files" id="files" accept=".pdf,.docx" multiple required>
-    <p class="order" id="orderHint">Select multiple files; order is preserved.</p>
+    <label>Add file(s)</label>
+    <div class="add-row">
+      <input type="file" id="picker" accept=".pdf,.docx" multiple>
+      <button type="button" class="btn-add" id="btnAdd">+ Add file(s)</button>
+    </div>
+    <p class="hint" id="hint">No files yet. Click “Add file(s)” to choose one or more PDF or Word files.</p>
+    <ul class="file-list" id="fileList" aria-live="polite"></ul>
+
     <label class="checkbox">
       <input type="checkbox" name="enumerate" value="1" checked>
       Add page numbers (Pag. n/total) in header
     </label>
     <label for="output_name">Output filename</label>
     <input type="text" name="output_name" id="output_name" value="merged_output.pdf" placeholder="merged_output.pdf">
-    <button type="submit" id="btn">Merge and download</button>
+    <button type="submit" id="btnSubmit">Merge and download</button>
   </form>
   <p class="msg" id="msg" aria-live="polite"></p>
 
   <script>
+    const picker = document.getElementById('picker');
+    const btnAdd = document.getElementById('btnAdd');
+    const fileListEl = document.getElementById('fileList');
+    const hint = document.getElementById('hint');
     const form = document.getElementById('form');
-    const btn = document.getElementById('btn');
+    const btnSubmit = document.getElementById('btnSubmit');
     const msg = document.getElementById('msg');
-    const filesInput = document.getElementById('files');
-    const orderHint = document.getElementById('orderHint');
 
-    filesInput.addEventListener('change', () => {
-      const n = filesInput.files.length;
-      if (n) orderHint.textContent = n + ' file(s) selected. Order: ' + Array.from(filesInput.files).map(f => f.name).join(', ');
+    const fileQueue = [];
+
+    function renderList() {
+      fileListEl.innerHTML = '';
+      fileQueue.forEach((file, i) => {
+        const li = document.createElement('li');
+        li.innerHTML =
+          '<span class="num">' + (i + 1) + '.</span>' +
+          '<span class="name" title="' + file.name + '">' + file.name + '</span>' +
+          '<button type="button" class="move" data-action="up" data-i="' + i + '" aria-label="Move up">↑</button>' +
+          '<button type="button" class="move" data-action="down" data-i="' + i + '" aria-label="Move down">↓</button>' +
+          '<button type="button" data-action="remove" data-i="' + i + '" aria-label="Remove">Remove</button>';
+        fileListEl.appendChild(li);
+      });
+      hint.textContent = fileQueue.length === 0
+        ? 'No files yet. Click “Add file(s)” to choose one or more PDF or Word files.'
+        : fileQueue.length + ' file(s) — order is merge order. Use ↑↓ to reorder, Remove to delete.';
+    }
+
+    btnAdd.addEventListener('click', () => picker.click());
+
+    picker.addEventListener('change', () => {
+      for (let i = 0; i < picker.files.length; i++) {
+        fileQueue.push(picker.files[i]);
+      }
+      picker.value = '';
+      renderList();
+    });
+
+    fileListEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const i = parseInt(btn.dataset.i, 10);
+      const action = btn.dataset.action;
+      if (action === 'remove') {
+        fileQueue.splice(i, 1);
+      } else if (action === 'up' && i > 0) {
+        [fileQueue[i - 1], fileQueue[i]] = [fileQueue[i], fileQueue[i - 1]];
+      } else if (action === 'down' && i < fileQueue.length - 1) {
+        [fileQueue[i], fileQueue[i + 1]] = [fileQueue[i + 1], fileQueue[i]];
+      }
+      renderList();
     });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      msg.textContent = '';
+      msg.textContent = 'Merging… (this can take a minute for Word files).';
       msg.className = 'msg';
-      btn.disabled = true;
-      const fd = new FormData(form);
+      btnSubmit.disabled = true;
+      if (fileQueue.length === 0) {
+        msg.textContent = 'Please add at least one file.';
+        msg.className = 'msg err';
+        btnSubmit.disabled = false;
+        return;
+      }
+      const fd = new FormData();
+      fd.append('enumerate', form.querySelector('[name="enumerate"]').checked ? '1' : '0');
+      fd.append('output_name', document.getElementById('output_name').value || 'merged_output.pdf');
+      for (let i = 0; i < fileQueue.length; i++) {
+        fd.append('files', fileQueue[i]);
+      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
       try {
-        const res = await fetch('/merge', { method: 'POST', body: fd });
+        const res = await fetch('/merge', { method: 'POST', body: fd, signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!res.ok) {
           msg.textContent = await res.text() || 'Something went wrong.';
           msg.className = 'msg err';
@@ -78,10 +151,15 @@
         msg.textContent = 'Download started.';
         msg.className = 'msg ok';
       } catch (err) {
-        msg.textContent = err.message || 'Request failed.';
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          msg.textContent = 'Request took too long. Try fewer or smaller files, or only PDFs.';
+        } else {
+          msg.textContent = 'Failed to reach server. Is the app running at ' + window.location.origin + '? Try again.';
+        }
         msg.className = 'msg err';
       } finally {
-        btn.disabled = false;
+        btnSubmit.disabled = false;
       }
     });
   </script>

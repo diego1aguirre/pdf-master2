@@ -40,9 +40,11 @@ def convert_docx_to_pdf(docx_path: Path, output_dir: Path | None = None) -> Path
         pass
 
     # Fallback: LibreOffice headless
-    # e.g. soffice --headless --convert-to pdf --outdir /tmp /path/to/file.docx
+    # On Mac, LibreOffice is often not on PATH; check common locations.
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
-    if soffice:
+    if not soffice and Path("/Applications/LibreOffice.app").exists():
+        soffice = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+    if soffice and Path(soffice).exists():
         subprocess.run(
             [soffice, "--headless", "--convert-to", "pdf", "--outdir", str(out_dir), str(docx_path)],
             check=True,
@@ -53,8 +55,10 @@ def convert_docx_to_pdf(docx_path: Path, output_dir: Path | None = None) -> Path
             return pdf_path
 
     raise RuntimeError(
-        "DOCX conversion failed. Install docx2pdf (pip install docx2pdf) or LibreOffice "
-        "(e.g. brew install --cask libreoffice) and ensure soffice is on PATH."
+        "To convert Word (.docx) files, install one of:\n"
+        "  • LibreOffice: brew install --cask libreoffice (then restart the app)\n"
+        "  • docx2pdf: pip install docx2pdf (uses Word on Windows/Mac)\n"
+        "Merging PDF-only files does not require either."
     )
 
 

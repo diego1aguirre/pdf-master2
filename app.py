@@ -2,6 +2,7 @@
 Web app: (1) Add page numbers to a PDF. (2) Merge PDF & Word and optionally add page numbers.
 """
 
+import io
 import tempfile
 from pathlib import Path
 
@@ -48,14 +49,13 @@ def process():
 def merge():
     if request.method == "GET":
         return render_template("merge.html")
-    # POST: merge files
-    if "files[]" in request.files:
-        files = request.files.getlist("files[]")
-    else:
-        files = request.files.getlist("files") if "files" in request.files else []
-    files = [f for f in files if f and f.filename]
+    # POST: merge files — support "files", "files[]", or any multi-part file field
+    files = request.files.getlist("files") or request.files.getlist("files[]")
     if not files:
-        return "No files uploaded", 400
+        files = [v for v in request.files.values() if v and getattr(v, "filename", None)]
+    files = [f for f in files if f and getattr(f, "filename", None)]
+    if not files:
+        return "No files uploaded. Select one or more PDF or DOCX files.", 400
     enumerate_pages = request.form.get("enumerate", "false").lower() in ("1", "true", "yes")
     output_name = (request.form.get("output_name", "").strip() or "merged_output")
     if not output_name.endswith(".pdf"):
@@ -63,15 +63,24 @@ def merge():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         paths = []
+        name_count = {}
         for f in files:
-            path = tmp / (f.filename or "file")
+            base = f.filename or "file"
+            if base not in name_count:
+                name_count[base] = 0
+            name_count[base] += 1
+            if name_count[base] > 1:
+                stem, ext = base.rsplit(".", 1) if "." in base else (base, "")
+                base = f"{stem}_{name_count[base]}.{ext}" if ext else f"{stem}_{name_count[base]}"
+            path = tmp / base
             path.write_bytes(f.read())
             paths.append(path)
         try:
             out_path = tmp / output_name
             build_merged_pdf(paths, out_path, enumerate=enumerate_pages, temp_dir=tmp)
+            pdf_bytes = out_path.read_bytes()
             return send_file(
-                out_path,
+                io.BytesIO(pdf_bytes),
                 as_attachment=True,
                 download_name=output_name,
                 mimetype="application/pdf",
