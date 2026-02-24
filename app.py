@@ -1,5 +1,5 @@
 """
-Web app: upload a PDF, get back the same PDF with "Pag. n/total" on each page.
+Web app: (1) Add page numbers to a PDF. (2) Merge PDF & Word and optionally add page numbers.
 """
 
 import tempfile
@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import Flask, render_template, request, send_file
 
 from add_page_numbers import add_numbers_to_pdf
+from pdf_pipeline import build_merged_pdf
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
@@ -41,6 +42,42 @@ def process():
             download_name=download_name,
             mimetype="application/pdf",
         )
+
+
+@app.route("/merge", methods=["GET", "POST"])
+def merge():
+    if request.method == "GET":
+        return render_template("merge.html")
+    # POST: merge files
+    if "files[]" in request.files:
+        files = request.files.getlist("files[]")
+    else:
+        files = request.files.getlist("files") if "files" in request.files else []
+    files = [f for f in files if f and f.filename]
+    if not files:
+        return "No files uploaded", 400
+    enumerate_pages = request.form.get("enumerate", "false").lower() in ("1", "true", "yes")
+    output_name = (request.form.get("output_name", "").strip() or "merged_output")
+    if not output_name.endswith(".pdf"):
+        output_name += ".pdf"
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        paths = []
+        for f in files:
+            path = tmp / (f.filename or "file")
+            path.write_bytes(f.read())
+            paths.append(path)
+        try:
+            out_path = tmp / output_name
+            build_merged_pdf(paths, out_path, enumerate=enumerate_pages, temp_dir=tmp)
+            return send_file(
+                out_path,
+                as_attachment=True,
+                download_name=output_name,
+                mimetype="application/pdf",
+            )
+        except Exception as e:
+            return str(e), 500
 
 
 PORT = 5050

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Merge PDF & Word</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    a { color: #0066cc; }
+    p { color: #555; margin-bottom: 1rem; }
+    form { border: 2px dashed #ccc; border-radius: 8px; padding: 1.5rem; background: #fafafa; }
+    label { display: block; margin: 0.75rem 0 0.25rem; font-weight: 500; }
+    input[type="file"] { display: block; margin: 0.25rem 0 1rem; }
+    input[type="text"] { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+    .checkbox { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; }
+    .checkbox input { width: auto; }
+    button { background: #222; color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-size: 1rem; cursor: pointer; margin-top: 1rem; }
+    button:hover { background: #444; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .msg { margin-top: 1rem; font-size: 0.9rem; }
+    .err { color: #c00; }
+    .ok { color: #080; }
+    .order { font-size: 0.85rem; color: #666; margin-top: 0.25rem; }
+  </style>
+</head>
+<body>
+  <p><a href="/">← Add page numbers to single PDF</a></p>
+  <h1>Merge PDF & Word</h1>
+  <p>Upload PDF and/or DOCX files in the order you want. They will be merged into one PDF. Optionally add page numbers.</p>
+  <form id="form" action="/merge" method="post" enctype="multipart/form-data">
+    <label for="files">Files (order = merge order)</label>
+    <input type="file" name="files" id="files" accept=".pdf,.docx" multiple required>
+    <p class="order" id="orderHint">Select multiple files; order is preserved.</p>
+    <label class="checkbox">
+      <input type="checkbox" name="enumerate" value="1" checked>
+      Add page numbers (Pag. n/total) in header
+    </label>
+    <label for="output_name">Output filename</label>
+    <input type="text" name="output_name" id="output_name" value="merged_output.pdf" placeholder="merged_output.pdf">
+    <button type="submit" id="btn">Merge and download</button>
+  </form>
+  <p class="msg" id="msg" aria-live="polite"></p>
+
+  <script>
+    const form = document.getElementById('form');
+    const btn = document.getElementById('btn');
+    const msg = document.getElementById('msg');
+    const filesInput = document.getElementById('files');
+    const orderHint = document.getElementById('orderHint');
+
+    filesInput.addEventListener('change', () => {
+      const n = filesInput.files.length;
+      if (n) orderHint.textContent = n + ' file(s) selected. Order: ' + Array.from(filesInput.files).map(f => f.name).join(', ');
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.textContent = '';
+      msg.className = 'msg';
+      btn.disabled = true;
+      const fd = new FormData(form);
+      try {
+        const res = await fetch('/merge', { method: 'POST', body: fd });
+        if (!res.ok) {
+          msg.textContent = await res.text() || 'Something went wrong.';
+          msg.className = 'msg err';
+          return;
+        }
+        const blob = await res.blob();
+        const name = res.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/)?.[1] || 'merged_output.pdf';
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        msg.textContent = 'Download started.';
+        msg.className = 'msg ok';
+      } catch (err) {
+        msg.textContent = err.message || 'Request failed.';
+        msg.className = 'msg err';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

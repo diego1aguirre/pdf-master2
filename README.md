@@ -46,3 +46,35 @@ pip install -r requirements.txt
 4. Choose a PDF and click “Add page numbers” to download the numbered file.
 
 (Port 5050 is used because 5000 is often taken by macOS AirPlay.)
+
+## Merge PDF & Word (main controller)
+
+Merge a list of PDF and/or DOCX files into one PDF in order, with an option to add page numbers.
+
+**Pipeline:** DOCX → PDF (via docx2pdf or LibreOffice), then merge with pypdf, then optionally run the same “Pag. n/total” header as above.
+
+### CLI
+
+```bash
+# Activate venv first, then:
+python pdf_controller.py file1.pdf doc2.docx file3.pdf -o merged.pdf
+python pdf_controller.py file1.pdf file2.pdf -o merged.pdf -e   # with page numbers
+```
+
+- **Files:** Pass paths in the order you want them in the final PDF. Supports `.pdf` and `.docx`.
+- **-o, --output:** Output path (default: `merged_output.pdf`).
+- **-e, --enumerate:** Add “Pag. n/total” to each page.
+
+### Streamlit UI
+
+Upload files in order, toggle “Add page numbers”, then merge and download:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+### DOCX conversion
+
+- **Windows:** `docx2pdf` uses Microsoft Word (must be installed).
+- **Mac:** `docx2pdf` uses Word (if installed) or you can use LibreOffice. Fallback: install LibreOffice and ensure `soffice` is on PATH (e.g. `brew install --cask libreoffice`).
+- **Linux:** LibreOffice headless (`soffice`) is used when available.
