@@ -17,7 +17,8 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # Main site shows only the merge UI
+    return render_template("merge.html")
 
 
 @app.route("/process", methods=["POST"])
