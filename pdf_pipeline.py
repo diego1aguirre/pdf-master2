@@ -5,6 +5,7 @@ All steps are separate, pure functions.
 
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import List
@@ -15,8 +16,11 @@ from pypdf import PdfReader, PdfWriter
 def convert_docx_to_pdf(docx_path: Path, output_dir: Path | None = None) -> Path:
     """
     Convert a single .docx file to PDF.
-    Prefers docx2pdf (Word on Windows, Word/JXA or LibreOffice on Mac).
-    Falls back to LibreOffice headless if docx2pdf is unavailable or fails.
+
+    On macOS we prefer LibreOffice (soffice) because docx2pdf/JXA + Word often
+    fails with 'Error: Message not understood'. On Windows we prefer docx2pdf
+    (Word automation) and fall back to LibreOffice if available.
+
     Returns the path to the generated PDF.
     """
     docx_path = Path(docx_path).resolve()
@@ -30,29 +34,43 @@ def convert_docx_to_pdf(docx_path: Path, output_dir: Path | None = None) -> Path
     out_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = out_dir / f"{docx_path.stem}.pdf"
 
-    # Try docx2pdf first
-    try:
-        from docx2pdf import convert as docx2pdf_convert
-        docx2pdf_convert(str(docx_path), str(pdf_path))
-        if pdf_path.exists():
-            return pdf_path
-    except Exception:
-        pass
+    def _try_docx2pdf() -> bool:
+        try:
+            from docx2pdf import convert as docx2pdf_convert
 
-    # Fallback: LibreOffice headless
-    # On Mac, LibreOffice is often not on PATH; check common locations.
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
-    if not soffice and Path("/Applications/LibreOffice.app").exists():
-        soffice = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
-    if soffice and Path(soffice).exists():
-        subprocess.run(
-            [soffice, "--headless", "--convert-to", "pdf", "--outdir", str(out_dir), str(docx_path)],
-            check=True,
-            capture_output=True,
-            timeout=120,
-        )
-        if pdf_path.exists():
-            return pdf_path
+            docx2pdf_convert(str(docx_path), str(pdf_path))
+            return pdf_path.exists()
+        except Exception:
+            return False
+
+    def _try_soffice() -> bool:
+        # LibreOffice headless: soffice --headless --convert-to pdf --outdir out_dir input.docx
+        soffice = shutil.which("soffice") or shutil.which("libreoffice")
+        if not soffice and Path("/Applications/LibreOffice.app").exists():
+            soffice = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+        if not soffice or not Path(soffice).exists():
+            return False
+        try:
+            subprocess.run(
+                [soffice, "--headless", "--convert-to", "pdf", "--outdir", str(out_dir), str(docx_path)],
+                check=True,
+                capture_output=True,
+                timeout=300,
+            )
+        except subprocess.CalledProcessError:
+            return False
+        return pdf_path.exists()
+
+    ok = False
+    if sys.platform == "win32":
+        # Windows: try Word automation via docx2pdf, then LibreOffice
+        ok = _try_docx2pdf() or _try_soffice()
+    else:
+        # macOS / Linux: prefer LibreOffice, then docx2pdf if available
+        ok = _try_soffice() or _try_docx2pdf()
+
+    if ok:
+        return pdf_path
 
     raise RuntimeError(
         "To convert Word (.docx) files, install one of:\n"
