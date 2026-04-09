@@ -63,21 +63,32 @@ def convert_docx_to_pdf(docx_path: Path, output_dir: Path | None = None) -> Path
 
     def _try_mammoth_weasyprint() -> bool:
         # Pure-Python fallback with formatting: mammoth converts docx→HTML
-        # (preserving bold, italic, headings, tables, lists), then weasyprint
-        # renders the HTML to PDF.
+        # (preserving bold, italic, headings, tables, lists, images), then
+        # weasyprint renders the HTML to PDF.
         try:
+            import base64
             import mammoth
             import weasyprint
 
+            # Embed images as base64 data URIs so they appear in the PDF
+            def _inline_image(image):
+                with image.open() as img_bytes:
+                    encoded = base64.b64encode(img_bytes.read()).decode("ascii")
+                return {"src": f"data:{image.content_type};base64,{encoded}"}
+
             with open(docx_path, "rb") as f:
-                result = mammoth.convert_to_html(f)
+                result = mammoth.convert_to_html(
+                    f,
+                    convert_image=mammoth.images.img_element(_inline_image),
+                )
 
             html = f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <style>
-  body {{ font-family: Arial, sans-serif; margin: 2cm; font-size: 11pt; line-height: 1.5; color: #000; }}
+  @page {{ margin: 2cm; }}
+  body {{ font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #000; }}
   h1 {{ font-size: 20pt; font-weight: bold; margin: 0.8em 0 0.4em; }}
   h2 {{ font-size: 16pt; font-weight: bold; margin: 0.7em 0 0.3em; }}
   h3 {{ font-size: 13pt; font-weight: bold; margin: 0.6em 0 0.3em; }}
@@ -91,7 +102,7 @@ def convert_docx_to_pdf(docx_path: Path, output_dir: Path | None = None) -> Path
   table {{ border-collapse: collapse; width: 100%; margin: 0.8em 0; }}
   td, th {{ border: 1px solid #999; padding: 4px 8px; vertical-align: top; }}
   th {{ background: #f0f0f0; font-weight: bold; }}
-  img {{ max-width: 100%; }}
+  img {{ max-width: 100%; height: auto; }}
 </style>
 </head>
 <body>{result.value}</body>
