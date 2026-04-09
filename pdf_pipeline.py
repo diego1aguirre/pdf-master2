@@ -61,46 +61,54 @@ def convert_docx_to_pdf(docx_path: Path, output_dir: Path | None = None) -> Path
             return False
         return pdf_path.exists()
 
-    def _try_python_docx() -> bool:
-        # Pure-Python fallback: python-docx + reportlab (no external tools needed).
-        # Formatting is basic (paragraphs only) but always works.
+    def _try_mammoth_weasyprint() -> bool:
+        # Pure-Python fallback with formatting: mammoth converts docx→HTML
+        # (preserving bold, italic, headings, tables, lists), then weasyprint
+        # renders the HTML to PDF.
         try:
-            from docx import Document as DocxDocument
-            from reportlab.lib.pagesizes import letter
-            from reportlab.lib.styles import getSampleStyleSheet
-            from reportlab.lib.units import inch
-            from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+            import mammoth
+            import weasyprint
 
-            doc = DocxDocument(str(docx_path))
-            pdf_doc = SimpleDocTemplate(
-                str(pdf_path),
-                pagesize=letter,
-                leftMargin=inch,
-                rightMargin=inch,
-                topMargin=inch,
-                bottomMargin=inch,
-            )
-            styles = getSampleStyleSheet()
-            story = []
-            for para in doc.paragraphs:
-                text = para.text.strip()
-                if text:
-                    story.append(Paragraph(text, styles["Normal"]))
-                    story.append(Spacer(1, 4))
-            if not story:
-                story.append(Paragraph("(empty document)", styles["Normal"]))
-            pdf_doc.build(story)
+            with open(docx_path, "rb") as f:
+                result = mammoth.convert_to_html(f)
+
+            html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {{ font-family: Arial, sans-serif; margin: 2cm; font-size: 11pt; line-height: 1.5; color: #000; }}
+  h1 {{ font-size: 20pt; font-weight: bold; margin: 0.8em 0 0.4em; }}
+  h2 {{ font-size: 16pt; font-weight: bold; margin: 0.7em 0 0.3em; }}
+  h3 {{ font-size: 13pt; font-weight: bold; margin: 0.6em 0 0.3em; }}
+  h4, h5, h6 {{ font-size: 11pt; font-weight: bold; margin: 0.5em 0 0.2em; }}
+  p  {{ margin: 0 0 0.5em; }}
+  b, strong {{ font-weight: bold; }}
+  i, em {{ font-style: italic; }}
+  u {{ text-decoration: underline; }}
+  ul, ol {{ margin: 0.4em 0 0.4em 1.5em; padding: 0; }}
+  li {{ margin-bottom: 0.2em; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 0.8em 0; }}
+  td, th {{ border: 1px solid #999; padding: 4px 8px; vertical-align: top; }}
+  th {{ background: #f0f0f0; font-weight: bold; }}
+  img {{ max-width: 100%; }}
+</style>
+</head>
+<body>{result.value}</body>
+</html>"""
+
+            weasyprint.HTML(string=html).write_pdf(str(pdf_path))
             return pdf_path.exists()
         except Exception:
             return False
 
     ok = False
     if sys.platform == "win32":
-        # Windows: try Word automation via docx2pdf, then LibreOffice, then pure Python
-        ok = _try_docx2pdf() or _try_soffice() or _try_python_docx()
+        # Windows: try Word automation via docx2pdf, then LibreOffice, then mammoth/weasyprint
+        ok = _try_docx2pdf() or _try_soffice() or _try_mammoth_weasyprint()
     else:
-        # macOS / Linux: prefer LibreOffice, then docx2pdf if available, then pure Python
-        ok = _try_soffice() or _try_docx2pdf() or _try_python_docx()
+        # macOS / Linux: prefer LibreOffice, then docx2pdf, then mammoth/weasyprint
+        ok = _try_soffice() or _try_docx2pdf() or _try_mammoth_weasyprint()
 
     if ok:
         return pdf_path
