@@ -57,26 +57,58 @@ def convert_docx_to_pdf(docx_path: Path, output_dir: Path | None = None) -> Path
                 capture_output=True,
                 timeout=300,
             )
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
             return False
         return pdf_path.exists()
 
+    def _try_python_docx() -> bool:
+        # Pure-Python fallback: python-docx + reportlab (no external tools needed).
+        # Formatting is basic (paragraphs only) but always works.
+        try:
+            from docx import Document as DocxDocument
+            from reportlab.lib.pagesizes import letter
+            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.lib.units import inch
+            from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+
+            doc = DocxDocument(str(docx_path))
+            pdf_doc = SimpleDocTemplate(
+                str(pdf_path),
+                pagesize=letter,
+                leftMargin=inch,
+                rightMargin=inch,
+                topMargin=inch,
+                bottomMargin=inch,
+            )
+            styles = getSampleStyleSheet()
+            story = []
+            for para in doc.paragraphs:
+                text = para.text.strip()
+                if text:
+                    story.append(Paragraph(text, styles["Normal"]))
+                    story.append(Spacer(1, 4))
+            if not story:
+                story.append(Paragraph("(empty document)", styles["Normal"]))
+            pdf_doc.build(story)
+            return pdf_path.exists()
+        except Exception:
+            return False
+
     ok = False
     if sys.platform == "win32":
-        # Windows: try Word automation via docx2pdf, then LibreOffice
-        ok = _try_docx2pdf() or _try_soffice()
+        # Windows: try Word automation via docx2pdf, then LibreOffice, then pure Python
+        ok = _try_docx2pdf() or _try_soffice() or _try_python_docx()
     else:
-        # macOS / Linux: prefer LibreOffice, then docx2pdf if available
-        ok = _try_soffice() or _try_docx2pdf()
+        # macOS / Linux: prefer LibreOffice, then docx2pdf if available, then pure Python
+        ok = _try_soffice() or _try_docx2pdf() or _try_python_docx()
 
     if ok:
         return pdf_path
 
     raise RuntimeError(
-        "To convert Word (.docx) files, install one of:\n"
-        "  • LibreOffice: brew install --cask libreoffice (then restart the app)\n"
-        "  • docx2pdf: pip install docx2pdf (uses Word on Windows/Mac)\n"
-        "Merging PDF-only files does not require either."
+        "Could not convert the Word (.docx) file to PDF.\n"
+        "Install python-docx for basic conversion: pip install python-docx\n"
+        "For better formatting, install LibreOffice: brew install --cask libreoffice"
     )
 
 
