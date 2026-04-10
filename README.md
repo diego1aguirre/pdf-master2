@@ -1,80 +1,133 @@
-# pdf-master2
-Merge multiple PDF files and add dynamic page numbering.
+# PDF Merger & Word Converter
 
-## Add page numbers to PDFs
+A web application for merging PDF and Word (.docx) files into a single PDF, with optional page numbering.
 
-The script `add_page_numbers.py` adds a page counter **"Pag. {current}/{total}"** (e.g. `Pag. 2/40`) in the top-right corner of every page, then saves files with a `_numbered` suffix.
+---
 
-**Requirements:** Python 3, `pypdf`, `reportlab` (see `requirements.txt`).
+## Features
 
-**Usage:**
+- Merge any combination of **PDF and Word documents** into one PDF
+- Preserves the **order you choose** for the final document
+- Optional **page numbering** on every page (`Pag. 1/10` style)
+- Word documents are converted automatically, preserving bold, italic, headings, tables, and images
+
+---
+
+## Requirements
+
+- Python 3.10+
+- pip
+
+---
+
+## Local Development
 
 ```bash
+# Clone the repository
+git clone https://github.com/diego1aguirre/pdf-master2.git
+cd pdf-master2
+
+# Create a virtual environment and install dependencies
+python3 -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-python add_page_numbers.py                    # process current directory
-python add_page_numbers.py /path/to/folder    # process a specific folder
+
+# Start the development server
+python app.py
 ```
 
-**Details:**
-- Format: `Pag. {current}/{total}` (e.g. Pag. 2/40)
-- Font: Arial when available (macOS), otherwise Helvetica; size 18pt
-- Position: 0.25 in (18 pt) from top edge, right-aligned with 1 in (72 pt) from the right edge
-- Output: `original_name_numbered.pdf` (files already ending in `_numbered` are skipped)
+Open **http://127.0.0.1:5050** in your browser.
 
-## Web app (test in the browser)
+### Improving Word conversion quality (optional)
 
-Upload a PDF and download the numbered version.
+By default the app converts Word documents using pure Python libraries. For better output — including logos and images — install one of the following:
 
-**First time (create a virtual environment and install dependencies):**
+**LibreOffice** (best quality):
+```bash
+brew install --cask libreoffice     # macOS
+sudo apt install libreoffice        # Ubuntu/Debian
+```
+
+**Pango** (enables image rendering via weasyprint):
+```bash
+# macOS
+sudo xcodebuild -license accept
+brew install pango
+
+# Ubuntu/Debian
+sudo apt install libpango-1.0-0 libpangoft2-1.0-0
+```
+
+---
+
+## Deployment
+
+### Railway (recommended)
+
+Railway supports system-level libraries, so Word documents convert with full formatting including logos and images.
+
+1. Push the repository to GitHub.
+2. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**.
+3. Select this repository — Railway detects `nixpacks.toml` automatically and installs all required dependencies.
+4. Click **Deploy**.
+
+A public URL is generated automatically. Custom domains can be configured under **Settings → Domains**.
+
+### Vercel
+
+Vercel does not support system-level libraries, so Word documents convert without embedded images or logos. Text, headings, bold, italic, and tables are preserved.
+
+1. Push the repository to GitHub.
+2. Go to [vercel.com](https://vercel.com) → **New Project** → import the repository.
+3. Vercel detects `vercel.json` automatically.
+4. Click **Deploy**.
+
+### Linux Server (VPS)
 
 ```bash
+# Install system dependencies
+sudo apt update
+sudo apt install -y python3 python3-pip python3-venv \
+    libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libglib2.0-0
+
+# Clone and set up
+git clone https://github.com/diego1aguirre/pdf-master2.git
 cd pdf-master2
 python3 -m venv venv
-source venv/bin/activate    # on Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
+
+# Run with gunicorn (production)
+pip install gunicorn
+gunicorn app:app --bind 0.0.0.0:5050 --workers 2 --timeout 120
 ```
 
-**Every time you want to run the app:**
+The app reads the `PORT` environment variable and defaults to `5050` if not set.
 
-1. Open a terminal in the project folder.
-2. Activate the venv and start the server:
-   ```bash
-   source venv/bin/activate
-   python app.py
-   ```
-3. In your browser, open the URL shown (e.g. **http://127.0.0.1:5050**).
-4. Choose a PDF and click “Add page numbers” to download the numbered file.
+---
 
-(Port 5050 is used because 5000 is often taken by macOS AirPlay.)
+## Word-to-PDF Conversion
 
-## Merge PDF & Word (main controller)
+The app tries the following methods in order, using the best one available on the host:
 
-Merge a list of PDF and/or DOCX files into one PDF in order, with an option to add page numbers.
+| Method | Quality | Requirement |
+|---|---|---|
+| LibreOffice | Best | `libreoffice` installed |
+| docx2pdf | Great | Microsoft Word (Windows/Mac) |
+| mammoth + weasyprint | Good — includes images | `pango` system library |
+| python-docx + reportlab | Basic — text only | None |
 
-**Pipeline:** DOCX → PDF (via docx2pdf or LibreOffice), then merge with pypdf, then optionally run the same “Pag. n/total” header as above.
+---
 
-### CLI
+## Project Structure
 
-```bash
-# Activate venv first, then:
-python pdf_controller.py file1.pdf doc2.docx file3.pdf -o merged.pdf
-python pdf_controller.py file1.pdf file2.pdf -o merged.pdf -e   # with page numbers
 ```
-
-- **Files:** Pass paths in the order you want them in the final PDF. Supports `.pdf` and `.docx`.
-- **-o, --output:** Output path (default: `merged_output.pdf`).
-- **-e, --enumerate:** Add “Pag. n/total” to each page.
-
-### Streamlit UI
-
-Upload files in order, toggle “Add page numbers”, then merge and download:
-
-```bash
-streamlit run streamlit_app.py
+app.py              – Flask application entry point
+pdf_pipeline.py     – Word-to-PDF conversion and merge logic
+add_page_numbers.py – Page numbering logic
+pdf_controller.py   – Command-line interface
+templates/          – HTML templates
+requirements.txt    – Python dependencies
+nixpacks.toml       – Railway build configuration
+vercel.json         – Vercel build configuration
 ```
-
-### DOCX conversion
-
-- **Windows:** `docx2pdf` uses Microsoft Word (must be installed).
-- **Mac:** `docx2pdf` uses Word (if installed) or you can use LibreOffice. Fallback: install LibreOffice and ensure `soffice` is on PATH (e.g. `brew install --cask libreoffice`).
-- **Linux:** LibreOffice headless (`soffice`) is used when available.

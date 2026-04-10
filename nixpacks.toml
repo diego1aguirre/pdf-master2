@@ -1,0 +1,5 @@
+[phases.setup]
+nixPkgs = ["pango", "libffi", "cairo", "glib"]
+
+[start]
+cmd = "python app.py"

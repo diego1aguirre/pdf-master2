@@ -90,10 +90,11 @@ def merge():
             return str(e), 500
 
 
-PORT = 5050
+import os
+PORT = int(os.environ.get("PORT", 5050))
 
 if __name__ == "__main__":
     print("\n  PDF Page Numbers – open in your browser:\n")
     print(f"    http://127.0.0.1:{PORT}")
     print("\n  (Stop the server with Ctrl+C)\n")
-    app.run(host="0.0.0.0", debug=True, port=PORT)
+    app.run(host="0.0.0.0", debug=False, port=PORT)
