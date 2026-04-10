@@ -1,7 +1,8 @@
 FROM python:3.11-slim
 
-# Install system libraries required for weasyprint (pango, cairo, glib)
+# Install LibreOffice (perfect Word→PDF conversion) + weasyprint system libs
 RUN apt-get update && apt-get install -y \
+    libreoffice \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
     libcairo2 \
