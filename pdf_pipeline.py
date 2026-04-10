@@ -113,21 +113,161 @@ def convert_docx_to_pdf(docx_path: Path, output_dir: Path | None = None) -> Path
         except Exception:
             return False
 
+    def _try_python_docx_reportlab() -> bool:
+        # Last-resort fallback: python-docx + reportlab only — no system libs needed.
+        # Preserves bold/italic/headings/tables but drops images (needs pango for those).
+        try:
+            import io as _io
+            from docx import Document as _Document
+            from docx.oxml.ns import qn as _qn
+            from docx.text.paragraph import Paragraph as _DocxPara
+            from docx.table import Table as _DocxTable
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+            from reportlab.lib import colors as _colors
+            from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
+            from reportlab.lib.pagesizes import letter
+            from reportlab.lib.styles import ParagraphStyle
+            from reportlab.lib.units import inch
+            from reportlab.platypus import (
+                Image as _RLImage,
+                Paragraph as _RLPara,
+                SimpleDocTemplate,
+                Spacer,
+                Table as _RLTable,
+                TableStyle,
+            )
+
+            _doc = _Document(str(docx_path))
+
+            _S = {
+                "n":  ParagraphStyle("rln",  fontName="Helvetica",      fontSize=11, leading=16, spaceAfter=4),
+                "h1": ParagraphStyle("rlh1", fontName="Helvetica-Bold", fontSize=20, leading=26, spaceBefore=10, spaceAfter=6),
+                "h2": ParagraphStyle("rlh2", fontName="Helvetica-Bold", fontSize=16, leading=22, spaceBefore=8,  spaceAfter=4),
+                "h3": ParagraphStyle("rlh3", fontName="Helvetica-Bold", fontSize=13, leading=18, spaceBefore=6,  spaceAfter=4),
+            }
+            _ALIGN = {
+                WD_ALIGN_PARAGRAPH.CENTER:  TA_CENTER,
+                WD_ALIGN_PARAGRAPH.RIGHT:   TA_RIGHT,
+                WD_ALIGN_PARAGRAPH.JUSTIFY: TA_JUSTIFY,
+            }
+
+            def _style(base, alignment):
+                ta = _ALIGN.get(alignment)
+                if ta is None:
+                    return base
+                return ParagraphStyle(base.name + "_a", parent=base, alignment=ta)
+
+            def _runs_to_markup(para):
+                parts = []
+                for run in para.runs:
+                    t = (run.text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    if not t:
+                        continue
+                    if run.bold:      t = f"<b>{t}</b>"
+                    if run.italic:    t = f"<i>{t}</i>"
+                    if run.underline: t = f"<u>{t}</u>"
+                    parts.append(t)
+                return "".join(parts)
+
+            def _images_in_para(para):
+                imgs = []
+                for run in para.runs:
+                    for blip in run._r.findall(".//" + _qn("a:blip")):
+                        rid = blip.get(_qn("r:embed"))
+                        if rid and rid in _doc.part.rels:
+                            rel = _doc.part.rels[rid]
+                            if "image" in rel.reltype:
+                                imgs.append(rel.target_part.blob)
+                return imgs
+
+            story = []
+
+            def _add_para(para):
+                for img_blob in _images_in_para(para):
+                    try:
+                        from PIL import Image as _PILImg
+                        pil = _PILImg.open(_io.BytesIO(img_blob))
+                        w, h = pil.size
+                        max_w, max_h = 5.5 * inch, 2.5 * inch
+                        scale = min(max_w / w, max_h / h, 1.0)
+                        story.append(_RLImage(_io.BytesIO(img_blob), width=w * scale, height=h * scale))
+                        story.append(Spacer(1, 4))
+                    except Exception:
+                        pass
+
+                markup = _runs_to_markup(para)
+                if not markup.strip():
+                    story.append(Spacer(1, 4))
+                    return
+
+                sname = (para.style.name or "").lower()
+                if "heading 1" in sname:   base = _S["h1"]
+                elif "heading 2" in sname: base = _S["h2"]
+                elif "heading 3" in sname: base = _S["h3"]
+                else:                      base = _S["n"]
+
+                st = _style(base, para.alignment)
+                try:
+                    story.append(_RLPara(markup, st))
+                except Exception:
+                    story.append(_RLPara((para.text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"), base))
+
+            def _add_table(table):
+                data = []
+                for row in table.rows:
+                    row_data = []
+                    for cell in row.cells:
+                        ct = "".join(
+                            (r.text or "") for p in cell.paragraphs for r in p.runs
+                        ).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        row_data.append(_RLPara(ct, _S["n"]))
+                    data.append(row_data)
+                if data:
+                    t = _RLTable(data, repeatRows=1, hAlign="LEFT")
+                    t.setStyle(TableStyle([
+                        ("GRID",         (0, 0), (-1, -1), 0.5, _colors.grey),
+                        ("BACKGROUND",   (0, 0), (-1,  0), _colors.lightgrey),
+                        ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+                        ("TOPPADDING",   (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+                        ("LEFTPADDING",  (0, 0), (-1, -1), 6),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ]))
+                    story.append(t)
+                    story.append(Spacer(1, 8))
+
+            for child in _doc.element.body:
+                tag = child.tag
+                if tag == _qn("w:p"):
+                    _add_para(_DocxPara(child, _doc))
+                elif tag == _qn("w:tbl"):
+                    _add_table(_DocxTable(child, _doc))
+
+            if not story:
+                story.append(_RLPara("(empty document)", _S["n"]))
+
+            SimpleDocTemplate(
+                str(pdf_path), pagesize=letter,
+                leftMargin=inch, rightMargin=inch, topMargin=inch, bottomMargin=inch,
+            ).build(story)
+            return pdf_path.exists()
+        except Exception:
+            return False
+
     ok = False
     if sys.platform == "win32":
-        # Windows: try Word automation via docx2pdf, then LibreOffice, then mammoth/weasyprint
-        ok = _try_docx2pdf() or _try_soffice() or _try_mammoth_weasyprint()
+        ok = _try_docx2pdf() or _try_soffice() or _try_mammoth_weasyprint() or _try_python_docx_reportlab()
     else:
-        # macOS / Linux: prefer LibreOffice, then docx2pdf, then mammoth/weasyprint
-        ok = _try_soffice() or _try_docx2pdf() or _try_mammoth_weasyprint()
+        ok = _try_soffice() or _try_docx2pdf() or _try_mammoth_weasyprint() or _try_python_docx_reportlab()
 
     if ok:
         return pdf_path
 
     raise RuntimeError(
         "Could not convert the Word (.docx) file to PDF.\n"
-        "Install python-docx for basic conversion: pip install python-docx\n"
-        "For better formatting, install LibreOffice: brew install --cask libreoffice"
+        "For best results install LibreOffice: brew install --cask libreoffice\n"
+        "Or install pango for image support: brew install pango"
     )
 
 
